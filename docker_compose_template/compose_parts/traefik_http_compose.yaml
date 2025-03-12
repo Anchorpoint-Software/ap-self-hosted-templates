@@ -1,0 +1,62 @@
+version: "3.8"
+
+services:
+  traefik:
+    container_name: ap_traefik
+    command:
+      - "--api=true"
+      - "--api.insecure=false"
+      - "--api.dashboard=false"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.web.address=:80"
+      - "--entrypoints.grpc.address=:9090"
+    image: traefik:v3.0.0
+    networks:
+      - ap_network
+    labels:
+      - "logging=ap_promtail"
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+    ports:
+      - "12348:80"
+      - "12347:9090"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+  keycloak:
+    environment:
+      KC_HOSTNAME_URL: ${HTTP_SCHEME}://${DOMAIN_NAME}:${HTTP_PORT}/auth
+      KC_HOSTNAME_ADMIN_URL: ${HTTP_SCHEME}://${DOMAIN_NAME}:${HTTP_PORT}/auth
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: true
+      KC_HTTP_RELATIVE_PATH: /auth
+      KC_HOSTNAME_DEBUG: true
+      KC_PROXY_HEADERS: xforwarded
+      KC_HTTP_ENABLED: true
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.keycloak.entrypoints=web"
+      - "traefik.http.routers.keycloak.rule=PathPrefix(`/auth/admin`) || PathPrefix(`/auth/realms`) || PathPrefix(`/auth/resources`) || PathPrefix(`/auth/js`)"
+      - "traefik.http.routers.keycloak.service=keycloak"
+      - "traefik.http.services.keycloak.loadbalancer.server.port=8080"
+
+  ap_backend:
+    labels:
+      - "traefik.enable=true"
+      # grpc
+      - "traefik.http.services.ap-grpc-srvc.loadbalancer.server.port=9090"
+      - "traefik.http.services.ap-grpc-srvc.loadbalancer.server.scheme=h2c"
+      - "traefik.http.routers.ap-grpc-rt.service=ap-grpc-srvc"
+      - "traefik.http.routers.ap-grpc-rt.rule=Host(`${DOMAIN_NAME}`)"
+      - "traefik.http.routers.ap-grpc-rt.entrypoints=grpc"
+      - "traefik.http.routers.ap-grpc-rt.tls=false"
+
+      # rest
+      - "traefik.http.services.ap-rest-srvc.loadbalancer.server.port=8080"
+      - "traefik.http.routers.ap-rest-rt.service=ap-rest-srvc"
+      - "traefik.http.routers.ap-rest-rt.rule=Host(`${DOMAIN_NAME}`)"
+      - "traefik.http.routers.ap-rest-rt.entrypoints=web"
+      - "traefik.http.routers.ap-rest-rt.tls=false"

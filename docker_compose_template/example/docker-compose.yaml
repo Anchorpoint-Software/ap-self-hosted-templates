@@ -1,0 +1,489 @@
+name: ap_stack
+networks:
+  ap_network:
+    external: false
+    name: ap_stack_ap_network
+services:
+  ap_backend:
+    container_name: ap_backend
+    depends_on:
+      minio:
+        condition: service_healthy
+        required: true
+      postgres:
+        condition: service_healthy
+        required: true
+      rabbitmq:
+        condition: service_healthy
+        required: true
+    environment:
+      - AP_DEFAULT_WORKSPACE_ID=${DEFAULT_WORKSPACE_ID}
+      - AP_DEFAULT_WORKSPACE_NAME=${DEFAULT_WORKSPACE_NAME}
+      - AP_EMAIL_SMTP_HOST=${EMAIL_HOST}
+      - AP_EMAIL_SMTP_PASSWORD=${EMAIL_PASSWORD}
+      - AP_EMAIL_SMTP_PORT=${EMAIL_PORT}
+      - AP_EMAIL_SMTP_USERNAME=${EMAIL_USER}
+      - AP_LOGGING_STYLE=json
+      - AP_SERVER_CRASH_REPORTING=${CRASH_REPORTING}
+      - AP_SERVER_GRPC_API_URL=${HTTP_SCHEME}://${DOMAIN_NAME}:${GRPC_PORT}
+      - AP_SERVER_LICENSE_KEY=${LICENSE_KEY}
+      - AP_SERVER_REST_API_URL=${HTTP_SCHEME}://${DOMAIN_NAME}:${HTTP_PORT}
+      - AP_SERVICES_KEYCLOAK_ADMIN_CLI_CLIENT_SECRET=${ADMIN_CLI_CLIENT_SECRET}
+      - AP_SERVICES_KEYCLOAK_DASHBOARD_CLIENT_SECRET=${DASHBOARD_CLIENT_SECRET}
+      - AP_SERVICES_KEYCLOAK_DASHBOARD_SESSION_SECRET=${DASHBOARD_SESSION_SECRET}
+      - AP_SERVICES_KEYCLOAK_REALM_URL=${HTTP_SCHEME}://${DOMAIN_NAME}:${HTTP_PORT}/auth/realms/anchorpoint
+      - AP_SERVICES_POSTGRES_ADDRESS=${POSTGRES_ADDRESS}
+      - AP_SERVICES_POSTGRES_DBNAME=${POSTGRES_DB}
+      - AP_SERVICES_POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
+      - AP_SERVICES_POSTGRES_PORT=${POSTGRES_PORT}
+      - AP_SERVICES_POSTGRES_USERNAME=${POSTGRES_USER}
+      - AP_SERVICES_RABBITMQ_ADDRESS=rabbitmq
+      - AP_SERVICES_RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD}
+      - AP_SERVICES_RABBITMQ_PORT=5672
+      - AP_SERVICES_RABBITMQ_USERNAME=${RABBITMQ_USER}
+      - AP_OPTIONS_BUCKET_AS_PATH_STYLE=${MINIO_BUCKET_AS_PATH_STYLE}
+      - AP_OPTIONS_CREATE_BUCKET=${MINIO_CREATE_BUCKET}
+      - AP_OPTIONS_CREATE_BUCkET_WITH_POLICY=${MINIO_CREATE_BUCKET_WITH_POLICY}
+      - AP_SERVER_S3_URL=${HTTP_SCHEME}://${DOMAIN_NAME}:${MINIO_PORT}
+      - AP_SERVICES_S3_DATA_ACCESS_KEY=${MINIO_ACCESS_KEY}
+      - AP_SERVICES_S3_DATA_EXTERNAL_URL=${DOMAIN_NAME}:${MINIO_PORT}
+      - AP_SERVICES_S3_DATA_INTERNAL_URL=minio:9000
+      - AP_SERVICES_S3_DATA_SECRET_KEY=${MINIO_SECRET_KEY}
+      - AP_SERVICES_S3_DATA_USE_SSL=true
+      - AP_SERVICES_S3_DATA_USE_SSL_INTERNAL=false
+    image: anchorpointhq/ap-self-hosted:latest
+    labels:
+      - logging=ap_promtail
+      - traefik.enable=true
+      - traefik.http.services.ap-grpc-srvc.loadbalancer.server.port=9090
+      - traefik.http.services.ap-grpc-srvc.loadbalancer.server.scheme=h2c
+      - traefik.http.routers.ap-grpc-rt.service=ap-grpc-srvc
+      - traefik.http.routers.ap-grpc-rt.rule=Host(`${DOMAIN_NAME}`)
+      - traefik.http.routers.ap-grpc-rt.entrypoints=grpc
+      - traefik.http.routers.ap-grpc-rt.tls=true
+      - traefik.http.routers.ap-grpc-rt.tls.certresolver=leresolver
+      - traefik.http.services.ap-rest-srvc.loadbalancer.server.port=8080
+      - traefik.http.routers.ap-rest-rt.service=ap-rest-srvc
+      - traefik.http.routers.ap-rest-rt.rule=Host(`${DOMAIN_NAME}`)
+      - traefik.http.routers.ap-rest-rt.entrypoints=websecure
+      - traefik.http.routers.ap-rest-rt.tls=true
+      - traefik.http.routers.ap-rest-rt.tls.certresolver=leresolver
+    logging:
+      driver: json-file
+      options:
+        max-file: "5"
+        max-size: 20m
+    networks:
+      ap_network: null
+    restart: unless-stopped
+  cadvisor:
+    container_name: ap_cadvisor
+    devices:
+      - permissions: rwm
+        source: /dev/kmsg
+        target: /dev/kmsg
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    networks:
+      ap_network: null
+    privileged: true
+    restart: unless-stopped
+    volumes:
+      - bind:
+          create_host_path: true
+        read_only: true
+        source: /
+        target: /rootfs
+        type: bind
+      - bind:
+          create_host_path: true
+        read_only: true
+        source: /var/run
+        target: /var/run
+        type: bind
+      - bind:
+          create_host_path: true
+        read_only: true
+        source: /sys
+        target: /sys
+        type: bind
+      - bind:
+          create_host_path: true
+        read_only: true
+        source: /var/lib/docker
+        target: /var/lib/docker
+        type: bind
+      - bind:
+          create_host_path: true
+        read_only: true
+        source: /cgroup
+        target: /cgroup
+        type: bind
+  grafana:
+    container_name: ap_grafana
+    environment:
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD}
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER}
+      GF_SERVER_ROOT_URL: ${HTTP_SCHEME}://${DOMAIN_NAME}:${HTTP_PORT}/grafana
+      GF_SERVER_SERVE_FROM_SUB_PATH: true
+      GF_USERS_ALLOW_SIGN_UP: false
+    image: grafana/grafana:9.5.20
+    labels:
+      - traefik.enable=true
+      - traefik.http.services.grafana-srvc.loadbalancer.server.port=3000
+      - traefik.http.routers.grafana-rt.service=grafana-srvc
+      - traefik.http.routers.grafana-rt.rule=Host(`${DOMAIN_NAME}`) && (PathPrefix(`/grafana`))
+      - traefik.http.routers.grafana-rt.entrypoints=websecure
+      - traefik.http.routers.grafana-rt.tls=true
+      - traefik.http.routers.grafana-rt.tls.certresolver=leresolver
+      - traefik.http.routers.grafana-rt.middlewares=traefik-headers
+    networks:
+      ap_network: null
+    restart: always
+    user: ${GRAFANA_USER_ID}:${GRAFANA_GROUP_ID}
+    volumes:
+      - bind:
+          create_host_path: true
+        source: ./config/grafana/dashboards
+        target: /etc/grafana/provisioning/dashboards
+        type: bind
+      - bind:
+          create_host_path: true
+        source: ./config/grafana/datasources
+        target: /etc/grafana/provisioning/datasources
+        type: bind
+      - bind:
+          create_host_path: true
+        source: ${GRAFANA_DATA_PATH}
+        target: /var/lib/grafana
+        type: bind
+  keycloak:
+    command:
+      - start
+      - --import-realm
+    container_name: ap_keycloak
+    depends_on:
+      postgres:
+        condition: service_healthy
+        required: true
+    environment:
+      - KC_DB=postgres
+      - KC_DB_PASSWORD=${POSTGRES_PASSWORD}
+      - KC_DB_SCHEMA=public
+      - KC_DB_URL=jdbc:postgresql://${POSTGRES_ADDRESS}:${POSTGRES_PORT}/keycloak
+      - KC_DB_USERNAME=${POSTGRES_USER}
+      - KEYCLOAK_ADMIN=${KEYCLOAK_USER}
+      - KEYCLOAK_ADMIN_PASSWORD=${KEYCLOAK_PASSWORD}
+      - KC_HOSTNAME=${DOMAIN_NAME}
+      - KC_HOSTNAME_BACKCHANNEL_DYNAMIC=true
+      - KC_HOSTNAME_DEBUG=true
+      - KC_HTTP_ENABLED=true
+      - KC_HTTP_RELATIVE_PATH=/auth
+      - KC_PROXY_HEADERS=xforwarded
+    image: quay.io/keycloak/keycloak:24.0.4-0
+    labels:
+      - logging=ap_promtail
+      - traefik.enable=true
+      - traefik.http.routers.keycloak.entrypoints=websecure
+      - traefik.http.routers.keycloak.tls=true
+      - traefik.http.routers.keycloak.tls.certresolver=leresolver
+      - traefik.http.routers.keycloak.rule=Host(`${DOMAIN_NAME}`) && (PathPrefix(`/auth/admin`) || PathPrefix(`/auth/realms`) || PathPrefix(`/auth/resources`) || PathPrefix(`/auth/js`))
+      - traefik.http.routers.keycloak.service=keycloak
+      - traefik.http.services.keycloak.loadbalancer.server.port=8080
+    logging:
+      driver: json-file
+      options:
+        max-file: "5"
+        max-size: 20m
+    networks:
+      ap_network: null
+    restart: unless-stopped
+    volumes:
+      - bind:
+          create_host_path: true
+        source: ./config/keycloak
+        target: /opt/keycloak/data/import
+        type: bind
+      - bind:
+          create_host_path: true
+        source: ./config/keycloak/themes/anchorpoint
+        target: /opt/keycloak/themes/anchorpoint
+        type: bind
+  loki:
+    command:
+      - -config.file=/etc/loki/local-config.yaml
+    container_name: ap_loki
+    image: grafana/loki:2.9.9
+    logging:
+      driver: json-file
+      options:
+        max-file: "5"
+        max-size: 20m
+    networks:
+      ap_network: null
+    restart: unless-stopped
+    user: ${GRAFANA_USER_ID}:${GRAFANA_GROUP_ID}
+    volumes:
+      - bind:
+          create_host_path: true
+        source: ./config/loki/local-config.yaml
+        target: /etc/loki/local-config.yaml
+        type: bind
+      - bind:
+          create_host_path: true
+        source: ${LOKI_DATA_PATH}
+        target: /data/loki
+        type: bind
+  minio:
+    command: server /data --console-address ":9001"
+    container_name: ap_minio
+    environment:
+      MINIO_BROWSER_REDIRECT_URL: ${HTTP_SCHEME}://${MINIO_DOMAIN_NAME}:${MINIO_DASHBOARD_PORT}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY}
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY}
+      MINIO_SERVER_URL: ${HTTP_SCHEME}://${MINIO_DOMAIN_NAME}:${MINIO_PORT}
+    healthcheck:
+      interval: 10s
+      retries: 2
+      start_period: 5s
+      test: timeout 5s bash -c ':> /dev/tcp/127.0.0.1/9000' || exit 1
+      timeout: 5s
+    image: minio/minio:RELEASE.2024-05-10T01-41-38Z
+    labels:
+      - logging=ap_promtail
+      - traefik.enable=true
+      - traefik.http.services.minio-console-srvc.loadbalancer.server.port=9001
+      - traefik.http.routers.minio-console-rt.service=minio-console-srvc
+      - traefik.http.routers.minio-console-rt.rule=Host(`${DOMAIN_NAME}`)
+      - traefik.http.routers.minio-console-rt.entrypoints=minio-console
+      - traefik.http.routers.minio-console-rt.tls=true
+      - traefik.http.routers.minio-console-rt.tls.certresolver=leresolver
+      - traefik.http.routers.minio-console-rt.middlewares=traefik-headers
+      - traefik.http.services.minio-srvc.loadbalancer.server.port=9000
+      - traefik.http.routers.minio-rt.service=minio-srvc
+      - traefik.http.routers.minio-rt.rule=Host(`${DOMAIN_NAME}`)
+      - traefik.http.routers.minio-rt.entrypoints=minio
+      - traefik.http.routers.minio-rt.tls=true
+      - traefik.http.routers.minio-rt.tls.certresolver=leresolver
+      - traefik.http.routers.minio-rt.middlewares=traefik-headers
+    logging:
+      driver: json-file
+      options:
+        max-file: "5"
+        max-size: 20m
+    networks:
+      ap_network: null
+    restart: unless-stopped
+    volumes:
+      - bind:
+          create_host_path: true
+        source: ${MINIO_DATA_PATH}
+        target: /data
+        type: bind
+  nodeexporter:
+    command:
+      - --path.procfs=/host/proc
+      - --path.rootfs=/rootfs
+      - --path.sysfs=/host/sys
+      - --collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)
+    container_name: ap_nodeexporter
+    image: prom/node-exporter:v1.8.2
+    logging:
+      driver: json-file
+      options:
+        max-file: "5"
+        max-size: 20m
+    networks:
+      ap_network: null
+    restart: unless-stopped
+    user: ${GRAFANA_USER_ID}:${GRAFANA_GROUP_ID}
+    volumes:
+      - bind:
+          create_host_path: true
+        read_only: true
+        source: /proc
+        target: /host/proc
+        type: bind
+      - bind:
+          create_host_path: true
+        read_only: true
+        source: /sys
+        target: /host/sys
+        type: bind
+      - bind:
+          create_host_path: true
+        read_only: true
+        source: /
+        target: /rootfs
+        type: bind
+  postgres:
+    container_name: ap_postgres
+    environment:
+      POSTGRES_MULTIPLE_DATABASES: keycloak,${POSTGRES_DB}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_USER: ${POSTGRES_USER}
+    healthcheck:
+      interval: 30s
+      retries: 3
+      test:
+        - CMD-SHELL
+        - pg_isready -U ${POSTGRES_USER}
+      timeout: 30s
+    image: postgres:16.3
+    labels:
+      - logging=ap_promtail
+    logging:
+      driver: json-file
+      options:
+        max-file: "5"
+        max-size: 20m
+    networks:
+      ap_network: null
+    restart: unless-stopped
+    volumes:
+      - bind:
+          create_host_path: true
+        source: ./config/postgres
+        target: /docker-entrypoint-initdb.d
+        type: bind
+      - bind:
+          create_host_path: true
+        source: ${POSTGRES_DATA_PATH}
+        target: /var/lib/postgresql/data
+        type: bind
+  prometheus:
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=7d
+      - --web.console.libraries=/etc/prometheus/console_libraries
+      - --web.console.templates=/etc/prometheus/consoles
+    container_name: ap_prometheus
+    image: prom/prometheus:v2.53.1
+    logging:
+      driver: json-file
+      options:
+        max-file: "5"
+        max-size: 20m
+    networks:
+      ap_network: null
+    restart: unless-stopped
+    user: ${GRAFANA_USER_ID}:${GRAFANA_GROUP_ID}
+    volumes:
+      - bind:
+          create_host_path: true
+        source: ./config/prometheus/prometheus.yml
+        target: /etc/prometheus/prometheus.yml
+        type: bind
+      - bind:
+          create_host_path: true
+        source: ${PROMETHEUS_DATA_PATH}
+        target: /prometheus
+        type: bind
+  promtail:
+    command: -config.file=/etc/promtail/promtail-config.yaml
+    container_name: ap_promtail
+    image: grafana/promtail:2.9.9
+    networks:
+      ap_network: null
+    restart: unless-stopped
+    volumes:
+      - bind:
+          create_host_path: true
+        source: ./config/loki/promtail-config.yaml
+        target: /etc/promtail/promtail-config.yaml
+        type: bind
+      - bind:
+          create_host_path: true
+        source: /var/run/docker.sock
+        target: /var/run/docker.sock
+        type: bind
+      - bind:
+          create_host_path: true
+        read_only: true
+        source: /var/log
+        target: /var/log
+        type: bind
+  rabbitmq:
+    container_name: ap_rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_ERLANG_COOKIE: ${RABBITMQ_ERLANG_COOKIE}
+    healthcheck:
+      interval: 30s
+      retries: 10
+      test: rabbitmq-diagnostics check_port_connectivity
+      timeout: 30s
+    image: rabbitmq:3.13.4-management
+    labels:
+      - logging=ap_promtail
+    logging:
+      driver: json-file
+      options:
+        max-file: "5"
+        max-size: 20m
+    networks:
+      ap_network: null
+    restart: unless-stopped
+  traefik:
+    command:
+      - --api=true
+      - --api.insecure=false
+      - --api.dashboard=false
+      - --providers.docker=true
+      - --providers.docker.exposedbydefault=false
+      - --entrypoints.websecure.address=:443
+      - --entrypoints.grpc.address=:9090
+      - --entrypoints.minio.address=:9000
+      - --entrypoints.minio-console.address=:9001
+      - --certificatesresolvers.leresolver.acme.tlschallenge=true
+      - --certificatesresolvers.leresolver.acme.email=${LETS_ENCRYPT_EMAIL}
+      - --certificatesresolvers.leresolver.acme.storage=/letsencrypt/acme.json
+    container_name: ap_traefik
+    image: traefik:v3.0.0
+    labels:
+      - logging=ap_promtail
+      - traefik.enable=true
+      - traefik.http.middlewares.traefik-headers.headers.STSSeconds=315360000
+      - traefik.http.middlewares.traefik-headers.headers.browserXSSFilter=true
+      - traefik.http.middlewares.traefik-headers.headers.contentTypeNosniff=true
+      - traefik.http.middlewares.traefik-headers.headers.forceSTSHeader=true
+      - traefik.http.middlewares.traefik-headers.headers.SSLHost=${DOMAIN_NAME}
+      - traefik.http.middlewares.traefik-headers.headers.STSIncludeSubdomains=true
+      - traefik.http.middlewares.traefik-headers.headers.STSPreload=true
+    logging:
+      driver: json-file
+      options:
+        max-file: "5"
+        max-size: 20m
+    networks:
+      ap_network: null
+    ports:
+      - mode: ingress
+        protocol: tcp
+        published: "${HTTP_PORT}"
+        target: 443
+      - mode: ingress
+        protocol: tcp
+        published: "${GRPC_PORT}"
+        target: 9090
+      - mode: ingress
+        protocol: tcp
+        published: "${MINIO_PORT}"
+        target: 9000
+      - mode: ingress
+        protocol: tcp
+        published: "${MINIO_DASHBOARD_PORT}"
+        target: 9001
+    volumes:
+      - bind:
+          create_host_path: true
+        source: ${TRAEFIK_DATA_PATH}/letsencrypt
+        target: /letsencrypt
+        type: bind
+      - bind:
+          create_host_path: true
+        read_only: true
+        source: /var/run/docker.sock
+        target: /var/run/docker.sock
+        type: bind

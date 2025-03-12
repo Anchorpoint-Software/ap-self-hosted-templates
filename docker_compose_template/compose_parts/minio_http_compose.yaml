@@ -1,0 +1,47 @@
+version: "3.8"
+
+services:
+  minio:
+    command: server /data --console-address ":9001"
+    container_name: ap_minio
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY}
+      # MINIO_BROWSER_REDIRECT_URL: http://127.0.0.1:9001
+      MINIO_SERVER_URL: ${HTTP_SCHEME}://${MINIO_DOMAIN_NAME}:${MINIO_PORT}
+    healthcheck:
+      test: timeout 5s bash -c ':> /dev/tcp/127.0.0.1/9000' || exit 1
+      start_period: 5s
+      interval: 10s
+      timeout: 5s
+      retries: 2
+    image: minio/minio:RELEASE.2024-05-10T01-41-38Z
+    labels:
+      - "logging=ap_promtail"
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+    networks:
+      - ap_network
+    restart: unless-stopped
+    ports:
+      - "12345:9000"
+      - "12346:9001"
+    volumes:
+      - ./data/minio:/data:rw
+
+  ap_backend:
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      AP_SERVER_S3_URL: "${HTTP_SCHEME}://${DOMAIN_NAME}:${MINIO_PORT}"
+      AP_SERVICES_S3_DATA_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      AP_SERVICES_S3_DATA_SECRET_KEY: ${MINIO_SECRET_KEY}
+      AP_SERVICES_S3_DATA_INTERNAL_URL: "minio:9000"
+      AP_SERVICES_S3_DATA_EXTERNAL_URL: "${DOMAIN_NAME}:${MINIO_PORT}"
+      AP_OPTIONS_CREATE_BUCKET: ${MINIO_CREATE_BUCKET}
+      AP_OPTIONS_CREATE_BUCkET_WITH_POLICY: ${MINIO_CREATE_BUCKET_WITH_POLICY}
+      AP_OPTIONS_BUCKET_AS_PATH_STYLE: ${MINIO_BUCKET_AS_PATH_STYLE}

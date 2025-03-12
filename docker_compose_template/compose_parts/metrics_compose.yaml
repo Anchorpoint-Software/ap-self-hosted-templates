@@ -1,0 +1,110 @@
+version: "3.8"
+
+services:
+  grafana:
+    image: grafana/grafana:9.5.20
+    container_name: ap_grafana
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_USER}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_PASSWORD}
+      GF_USERS_ALLOW_SIGN_UP: false
+      GF_SERVER_ROOT_URL: "${HTTP_SCHEME}://${DOMAIN_NAME}:${HTTP_PORT}/grafana"
+      GF_SERVER_SERVE_FROM_SUB_PATH: true
+    networks:
+      - ap_network
+    restart: always
+    user: ${GRAFANA_USER_ID}:${GRAFANA_GROUP_ID}
+    volumes:
+      - ./config/grafana/dashboards:/etc/grafana/provisioning/dashboards
+      - ./config/grafana/datasources:/etc/grafana/provisioning/datasources
+      - ./data/grafana:/var/lib/grafana
+
+  prometheus:
+    command:
+      - "--config.file=/etc/prometheus/prometheus.yml"
+      - "--storage.tsdb.path=/prometheus"
+      - "--storage.tsdb.retention.time=7d"
+      - "--web.console.libraries=/etc/prometheus/console_libraries"
+      - "--web.console.templates=/etc/prometheus/consoles"
+    container_name: ap_prometheus
+    image: prom/prometheus:v2.53.1
+    logging:
+      driver: json-file
+      options:
+        max-file: "5"
+        max-size: "20m"
+    networks:
+      - ap_network
+    restart: unless-stopped
+    user: ${GRAFANA_USER_ID}:${GRAFANA_GROUP_ID}
+    volumes:
+      - ./config/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:rw
+      - ./data/prometheus:/prometheus:rw
+
+  loki:
+    command:
+      - "-config.file=/etc/loki/local-config.yaml"
+    container_name: ap_loki
+    image: grafana/loki:2.9.9
+    logging:
+      driver: json-file
+      options:
+        max-file: "5"
+        max-size: "20m"
+    networks:
+      - ap_network
+    restart: unless-stopped
+    user: ${GRAFANA_USER_ID}:${GRAFANA_GROUP_ID}
+    volumes:
+      - ./config/loki/local-config.yaml:/etc/loki/local-config.yaml:rw
+      - ./data/loki:/data/loki:rw
+
+  promtail:
+    command: -config.file=/etc/promtail/promtail-config.yaml
+    container_name: ap_promtail
+    image: grafana/promtail:2.9.9
+    networks:
+      - ap_network
+    restart: unless-stopped
+    volumes:
+      - ./config/loki/promtail-config.yaml:/etc/promtail/promtail-config.yaml
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /var/log:/var/log:ro
+
+  cadvisor:
+    container_name: ap_cadvisor
+    devices:
+      - /dev/kmsg:/dev/kmsg
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    networks:
+      - ap_network
+    privileged: true
+    restart: unless-stopped
+    volumes:
+      - /:/rootfs:ro
+      - /var/run:/var/run:ro
+      - /sys:/sys:ro
+      - /var/lib/docker:/var/lib/docker:ro
+      - /cgroup:/cgroup:ro
+
+  nodeexporter:
+    command:
+      - "--path.procfs=/host/proc"
+      - "--path.rootfs=/rootfs"
+      - "--path.sysfs=/host/sys"
+      - "--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)"
+    container_name: ap_nodeexporter
+    image: prom/node-exporter:v1.8.2
+    logging:
+      driver: json-file
+      options:
+        max-file: "5"
+        max-size: "20m"
+    networks:
+      - ap_network
+    restart: unless-stopped
+    user: ${GRAFANA_USER_ID}:${GRAFANA_GROUP_ID}
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/rootfs:ro

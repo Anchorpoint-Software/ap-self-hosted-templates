@@ -1,0 +1,81 @@
+version: "3.8"
+
+services:
+  traefik:
+    container_name: ap_traefik
+    command:
+      - "--api=true"
+      - "--api.insecure=false"
+      - "--api.dashboard=false"
+      - "--providers.docker=true"
+      - "--providers.docker.exposedbydefault=false"
+      - "--entrypoints.websecure.address=:443"
+      - "--entrypoints.grpc.address=:9090"
+      - "--entrypoints.minio.address=:9000"
+      - "--entrypoints.minio-console.address=:9001"
+      - "--certificatesresolvers.leresolver.acme.tlschallenge=true"
+      - "--certificatesresolvers.leresolver.acme.email=${LETS_ENCRYPT_EMAIL}"
+      - "--certificatesresolvers.leresolver.acme.storage=/letsencrypt/acme.json"
+    image: traefik:v3.0.0
+    labels:
+      - "logging=ap_promtail"
+      - "traefik.enable=true"
+      - "traefik.http.middlewares.traefik-headers.headers.STSSeconds=315360000"
+      - "traefik.http.middlewares.traefik-headers.headers.browserXSSFilter=true"
+      - "traefik.http.middlewares.traefik-headers.headers.contentTypeNosniff=true"
+      - "traefik.http.middlewares.traefik-headers.headers.forceSTSHeader=true"
+      - "traefik.http.middlewares.traefik-headers.headers.SSLHost=${DOMAIN_NAME}"
+      - "traefik.http.middlewares.traefik-headers.headers.STSIncludeSubdomains=true"
+      - "traefik.http.middlewares.traefik-headers.headers.STSPreload=true"
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+    networks:
+      - ap_network
+    ports:
+      - "12348:443" # HTTPS
+      - "12347:9090" # gRPC
+      - "12345:9000" # Minio
+      - "12346:9001" # Minio Console
+    volumes:
+      - ./data/traefik/letsencrypt:/letsencrypt
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+
+  keycloak:
+    environment:
+      KC_HOSTNAME: ${DOMAIN_NAME}
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: true
+      KC_HTTP_RELATIVE_PATH: /auth
+      KC_HOSTNAME_DEBUG: true
+      KC_PROXY_HEADERS: xforwarded
+      KC_HTTP_ENABLED: true
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.keycloak.entrypoints=websecure"
+      - "traefik.http.routers.keycloak.tls=true"
+      - "traefik.http.routers.keycloak.tls.certresolver=leresolver"
+      - "traefik.http.routers.keycloak.rule=Host(`${DOMAIN_NAME}`) && (PathPrefix(`/auth/admin`) || PathPrefix(`/auth/realms`) || PathPrefix(`/auth/resources`) || PathPrefix(`/auth/js`))"
+      - "traefik.http.routers.keycloak.service=keycloak"
+      - "traefik.http.services.keycloak.loadbalancer.server.port=8080"
+
+  ap_backend:
+    labels:
+      - "traefik.enable=true"
+      # grpc
+      - "traefik.http.services.ap-grpc-srvc.loadbalancer.server.port=9090"
+      - "traefik.http.services.ap-grpc-srvc.loadbalancer.server.scheme=h2c"
+      - "traefik.http.routers.ap-grpc-rt.service=ap-grpc-srvc"
+      - "traefik.http.routers.ap-grpc-rt.rule=Host(`${DOMAIN_NAME}`)"
+      - "traefik.http.routers.ap-grpc-rt.entrypoints=grpc"
+      - "traefik.http.routers.ap-grpc-rt.tls=true"
+      - "traefik.http.routers.ap-grpc-rt.tls.certresolver=leresolver"
+
+      # rest
+      - "traefik.http.services.ap-rest-srvc.loadbalancer.server.port=8080"
+      - "traefik.http.routers.ap-rest-rt.service=ap-rest-srvc"
+      - "traefik.http.routers.ap-rest-rt.rule=Host(`${DOMAIN_NAME}`)"
+      - "traefik.http.routers.ap-rest-rt.entrypoints=websecure"
+      - "traefik.http.routers.ap-rest-rt.tls=true"
+      - "traefik.http.routers.ap-rest-rt.tls.certresolver=leresolver"

@@ -1,0 +1,38 @@
+version: "3.8"
+
+services:
+  postgres:
+    container_name: ap_postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_MULTIPLE_DATABASES: keycloak,${POSTGRES_DB}
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER}"]
+      interval: 30s
+      timeout: 30s
+      retries: 3
+    image: postgres:16.3
+    networks:
+      - ap_network
+    labels:
+      - "logging=ap_promtail"
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+    restart: unless-stopped
+    volumes:
+      - ./config/postgres:/docker-entrypoint-initdb.d:rw
+      - ./data/postgres:/var/lib/postgresql/data:rw
+
+  keycloak:
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  ap_backend:
+    depends_on:
+      postgres:
+        condition: service_healthy

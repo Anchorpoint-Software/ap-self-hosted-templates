@@ -1,0 +1,97 @@
+version: "3.8"
+
+networks:
+  ap_network:
+    external: false
+
+services:
+  keycloak:
+    container_name: ap_keycloak
+    command: ["start", "--import-realm"]
+    environment:
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://${POSTGRES_ADDRESS}:${POSTGRES_PORT}/keycloak
+      KC_DB_SCHEMA: public
+      KC_DB_USERNAME: ${POSTGRES_USER}
+      KC_DB_PASSWORD: ${POSTGRES_PASSWORD}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_PASSWORD}
+      KEYCLOAK_ADMIN: ${KEYCLOAK_USER}
+    image: quay.io/keycloak/keycloak:24.0.4-0
+    labels:
+      - "logging=ap_promtail"
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+    networks:
+      - "ap_network"
+    restart: unless-stopped
+    volumes:
+      - ./config/keycloak:/opt/keycloak/data/import:rw
+      - ./config/keycloak/themes/anchorpoint:/opt/keycloak/themes/anchorpoint:rw
+
+  ap_backend:
+    container_name: ap_backend
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    environment:
+      AP_EMAIL_SMTP_HOST: ${EMAIL_HOST}
+      AP_EMAIL_SMTP_PORT: ${EMAIL_PORT}
+      AP_EMAIL_SMTP_USERNAME: ${EMAIL_USER}
+      AP_EMAIL_SMTP_PASSWORD: ${EMAIL_PASSWORD}
+      AP_DEFAULT_WORKSPACE_ID: ${DEFAULT_WORKSPACE_ID}
+      AP_DEFAULT_WORKSPACE_NAME: ${DEFAULT_WORKSPACE_NAME}
+      AP_LOGGING_STYLE: json
+      AP_SERVER_LICENSE_KEY: ${LICENSE_KEY}
+      AP_SERVER_REST_API_URL: "${HTTP_SCHEME}://${DOMAIN_NAME}:${HTTP_PORT}"
+      AP_SERVER_GRPC_API_URL: "${HTTP_SCHEME}://${DOMAIN_NAME}:${GRPC_PORT}"
+      AP_SERVER_CRASH_REPORTING: ${CRASH_REPORTING}
+      AP_SERVICES_KEYCLOAK_REALM_URL: "${HTTP_SCHEME}://${DOMAIN_NAME}:${HTTP_PORT}/auth/realms/anchorpoint"
+      AP_SERVICES_KEYCLOAK_ADMIN_CLI_CLIENT_SECRET: ${ADMIN_CLI_CLIENT_SECRET}
+      AP_SERVICES_KEYCLOAK_DASHBOARD_CLIENT_SECRET: ${DASHBOARD_CLIENT_SECRET}
+      AP_SERVICES_KEYCLOAK_DASHBOARD_SESSION_SECRET: ${DASHBOARD_SESSION_SECRET}
+      AP_SERVICES_POSTGRES_ADDRESS: ${POSTGRES_ADDRESS}
+      AP_SERVICES_POSTGRES_PORT: ${POSTGRES_PORT}
+      AP_SERVICES_POSTGRES_USERNAME: ${POSTGRES_USER}
+      AP_SERVICES_POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      AP_SERVICES_POSTGRES_DBNAME: ${POSTGRES_DB}
+      AP_SERVICES_RABBITMQ_ADDRESS: rabbitmq
+      AP_SERVICES_RABBITMQ_PORT: 5672
+      AP_SERVICES_RABBITMQ_USERNAME: ${RABBITMQ_USER}
+      AP_SERVICES_RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD}
+    image: anchorpointhq/ap-self-hosted:latest
+    labels:
+      - "logging=ap_promtail"
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+    networks:
+      - ap_network
+    restart: unless-stopped
+
+  rabbitmq:
+    container_name: ap_rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
+      RABBITMQ_ERLANG_COOKIE: ${RABBITMQ_ERLANG_COOKIE}
+    image: rabbitmq:3.13.4
+    healthcheck:
+      test: rabbitmq-diagnostics check_port_connectivity
+      interval: 30s
+      timeout: 30s
+      retries: 10
+    labels:
+      - "logging=ap_promtail"
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+    networks:
+      - ap_network
+    restart: unless-stopped

@@ -1,0 +1,62 @@
+version: "3.8"
+
+services:
+  minio:
+    command: server /data --console-address ":9001"
+    container_name: ap_minio
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ACCESS_KEY}
+      MINIO_ROOT_PASSWORD: ${MINIO_SECRET_KEY}
+      MINIO_BROWSER_REDIRECT_URL: ${HTTP_SCHEME}://${MINIO_DOMAIN_NAME}:${MINIO_DASHBOARD_PORT}
+      MINIO_SERVER_URL: ${HTTP_SCHEME}://${MINIO_DOMAIN_NAME}:${MINIO_PORT}
+    healthcheck:
+      test: timeout 5s bash -c ':> /dev/tcp/127.0.0.1/9000' || exit 1
+      start_period: 5s
+      interval: 10s
+      timeout: 5s
+      retries: 2
+    image: minio/minio:RELEASE.2024-05-10T01-41-38Z
+    labels:
+      - "logging=ap_promtail"
+      - "traefik.enable=true"
+      # Minio Console
+      - "traefik.http.services.minio-console-srvc.loadbalancer.server.port=9001"
+      - "traefik.http.routers.minio-console-rt.service=minio-console-srvc"
+      - "traefik.http.routers.minio-console-rt.rule=Host(`${DOMAIN_NAME}`)"
+      - "traefik.http.routers.minio-console-rt.entrypoints=minio-console"
+      - "traefik.http.routers.minio-console-rt.tls=true"
+      - "traefik.http.routers.minio-console-rt.middlewares=traefik-headers"
+
+      # Minio
+      - "traefik.http.services.minio-srvc.loadbalancer.server.port=9000"
+      - "traefik.http.routers.minio-rt.service=minio-srvc"
+      - "traefik.http.routers.minio-rt.rule=Host(`${DOMAIN_NAME}`)"
+      - "traefik.http.routers.minio-rt.entrypoints=minio"
+      - "traefik.http.routers.minio-rt.tls=true"
+      - "traefik.http.routers.minio-rt.middlewares=traefik-headers"
+    networks:
+      - ap_network
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+    restart: unless-stopped
+    volumes:
+      - ./data/minio:/data:rw
+
+  ap_backend:
+    depends_on:
+      minio:
+        condition: service_healthy
+    environment:
+      AP_SERVER_S3_URL: "${HTTP_SCHEME}://${DOMAIN_NAME}:${MINIO_PORT}"
+      AP_SERVICES_S3_DATA_ACCESS_KEY: ${MINIO_ACCESS_KEY}
+      AP_SERVICES_S3_DATA_SECRET_KEY: ${MINIO_SECRET_KEY}
+      AP_SERVICES_S3_DATA_INTERNAL_URL: "minio:9000"
+      AP_SERVICES_S3_DATA_EXTERNAL_URL: "${DOMAIN_NAME}:${MINIO_PORT}"
+      AP_SERVICES_S3_DATA_USE_SSL: "true"
+      AP_SERVICES_S3_DATA_USE_SSL_INTERNAL: "false"
+      AP_OPTIONS_CREATE_BUCKET: ${MINIO_CREATE_BUCKET}
+      AP_OPTIONS_CREATE_BUCkET_WITH_POLICY: ${MINIO_CREATE_BUCKET_WITH_POLICY}
+      AP_OPTIONS_BUCKET_AS_PATH_STYLE: ${MINIO_BUCKET_AS_PATH_STYLE}
