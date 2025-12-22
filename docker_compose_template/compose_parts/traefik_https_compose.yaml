@@ -16,7 +16,7 @@ services:
       - "--certificatesresolvers.leresolver.acme.tlschallenge=true"
       - "--certificatesresolvers.leresolver.acme.email=${LETS_ENCRYPT_EMAIL}"
       - "--certificatesresolvers.leresolver.acme.storage=/letsencrypt/acme.json"
-    image: traefik:v3.0.0
+    image: traefik:v3.6.1
     labels:
       - "logging=ap_promtail"
       - "traefik.enable=true"
