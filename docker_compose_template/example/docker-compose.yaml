@@ -1,3 +1,4 @@
+# DO NOT MODIFY THIS FILE MANUALLY
 name: ap_stack
 networks:
   ap_network:
@@ -13,9 +14,6 @@ services:
       postgres:
         condition: service_healthy
         required: true
-      rabbitmq:
-        condition: service_healthy
-        required: true
     environment:
       - AP_DEFAULT_WORKSPACE_ID=${DEFAULT_WORKSPACE_ID}
       - AP_DEFAULT_WORKSPACE_NAME=${DEFAULT_WORKSPACE_NAME}
@@ -25,7 +23,7 @@ services:
       - AP_EMAIL_SMTP_USERNAME=${EMAIL_USER}
       - AP_LOGGING_STYLE=json
       - AP_SERVER_CRASH_REPORTING=${CRASH_REPORTING}
-      - AP_SERVER_GRPC_API_URL=${HTTP_SCHEME}://${DOMAIN_NAME}:${GRPC_PORT}
+      - AP_SERVER_GRPC_API_URL=${HTTP_SCHEME}://${DOMAIN_NAME}:${HTTP_PORT}
       - AP_SERVER_LICENSE_KEY=${LICENSE_KEY}
       - AP_SERVER_REST_API_URL=${HTTP_SCHEME}://${DOMAIN_NAME}:${HTTP_PORT}
       - AP_SERVICES_KEYCLOAK_ADMIN_CLI_CLIENT_SECRET=${ADMIN_CLI_CLIENT_SECRET}
@@ -37,10 +35,7 @@ services:
       - AP_SERVICES_POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
       - AP_SERVICES_POSTGRES_PORT=${POSTGRES_PORT}
       - AP_SERVICES_POSTGRES_USERNAME=${POSTGRES_USER}
-      - AP_SERVICES_RABBITMQ_ADDRESS=rabbitmq
-      - AP_SERVICES_RABBITMQ_PASSWORD=${RABBITMQ_PASSWORD}
-      - AP_SERVICES_RABBITMQ_PORT=5672
-      - AP_SERVICES_RABBITMQ_USERNAME=${RABBITMQ_USER}
+      - AP_SERVICES_RABBITMQ_DISABLED=true
       - AP_OPTIONS_BUCKET_AS_PATH_STYLE=${MINIO_BUCKET_AS_PATH_STYLE}
       - AP_OPTIONS_CREATE_BUCKET=${MINIO_CREATE_BUCKET}
       - AP_OPTIONS_CREATE_BUCkET_WITH_POLICY=${MINIO_CREATE_BUCKET_WITH_POLICY}
@@ -51,10 +46,18 @@ services:
       - AP_SERVICES_S3_DATA_SECRET_KEY=${MINIO_SECRET_KEY}
       - AP_SERVICES_S3_DATA_USE_SSL=true
       - AP_SERVICES_S3_DATA_USE_SSL_INTERNAL=false
-    image: anchorpointhq/ap-self-hosted:latest
+    image: registry.anchorpoint.app/ap-self-hosted:latest
     labels:
       - logging=ap_promtail
       - traefik.enable=true
+      - traefik.http.services.ap-grpc-web-srvc.loadbalancer.server.port=9090
+      - traefik.http.services.ap-grpc-web-srvc.loadbalancer.server.scheme=h2c
+      - traefik.http.routers.ap-grpc-web-rt.service=ap-grpc-web-srvc
+      - traefik.http.routers.ap-grpc-web-rt.rule=Host(`${DOMAIN_NAME}`) && HeaderRegexp(`Content-Type`, `^application/grpc.*`)
+      - traefik.http.routers.ap-grpc-web-rt.entrypoints=websecure
+      - traefik.http.routers.ap-grpc-web-rt.priority=100
+      - traefik.http.routers.ap-grpc-web-rt.tls=true
+      - traefik.http.routers.ap-grpc-web-rt.tls.certresolver=leresolver
       - traefik.http.services.ap-grpc-srvc.loadbalancer.server.port=9090
       - traefik.http.services.ap-grpc-srvc.loadbalancer.server.scheme=h2c
       - traefik.http.routers.ap-grpc-rt.service=ap-grpc-srvc
@@ -76,13 +79,24 @@ services:
     networks:
       ap_network: null
     restart: unless-stopped
+    volumes:
+      - bind:
+          create_host_path: true
+        source: ./config/ap_backend/templates/email
+        target: /ap/templates/email
+        type: bind
+      - bind:
+          create_host_path: true
+        source: ${AP_UPDATES_DATA_PATH}
+        target: /ap/updates
+        type: bind
   cadvisor:
     container_name: ap_cadvisor
     devices:
       - permissions: rwm
         source: /dev/kmsg
         target: /dev/kmsg
-    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    image: ghcr.io/google/cadvisor:0.56.2
     networks:
       ap_network: null
     privileged: true
@@ -126,7 +140,7 @@ services:
       GF_SERVER_ROOT_URL: ${HTTP_SCHEME}://${DOMAIN_NAME}:${HTTP_PORT}/grafana
       GF_SERVER_SERVE_FROM_SUB_PATH: true
       GF_USERS_ALLOW_SIGN_UP: false
-    image: grafana/grafana:9.5.20
+    image: grafana/grafana:13.0.1
     labels:
       - traefik.enable=true
       - traefik.http.services.grafana-srvc.loadbalancer.server.port=3000
@@ -166,20 +180,21 @@ services:
         condition: service_healthy
         required: true
     environment:
+      - KC_BOOTSTRAP_ADMIN_PASSWORD=${KEYCLOAK_PASSWORD}
+      - KC_BOOTSTRAP_ADMIN_USERNAME=${KEYCLOAK_USER}
       - KC_DB=postgres
       - KC_DB_PASSWORD=${POSTGRES_PASSWORD}
       - KC_DB_SCHEMA=public
       - KC_DB_URL=jdbc:postgresql://${POSTGRES_ADDRESS}:${POSTGRES_PORT}/keycloak
       - KC_DB_USERNAME=${POSTGRES_USER}
-      - KEYCLOAK_ADMIN=${KEYCLOAK_USER}
-      - KEYCLOAK_ADMIN_PASSWORD=${KEYCLOAK_PASSWORD}
-      - KC_HOSTNAME=${DOMAIN_NAME}
+      - KC_HOSTNAME=${HTTP_SCHEME}://${DOMAIN_NAME}:${HTTP_PORT}/auth
+      - KC_HOSTNAME_ADMIN=${HTTP_SCHEME}://${DOMAIN_NAME}:${HTTP_PORT}/auth
       - KC_HOSTNAME_BACKCHANNEL_DYNAMIC=true
       - KC_HOSTNAME_DEBUG=true
       - KC_HTTP_ENABLED=true
       - KC_HTTP_RELATIVE_PATH=/auth
       - KC_PROXY_HEADERS=xforwarded
-    image: quay.io/keycloak/keycloak:24.0.4-0
+    image: quay.io/keycloak/keycloak:26.5.7-0
     labels:
       - logging=ap_promtail
       - traefik.enable=true
@@ -212,7 +227,7 @@ services:
     command:
       - -config.file=/etc/loki/local-config.yaml
     container_name: ap_loki
-    image: grafana/loki:2.9.9
+    image: grafana/loki:3.7.1
     logging:
       driver: json-file
       options:
@@ -247,7 +262,7 @@ services:
       start_period: 5s
       test: timeout 5s bash -c ':> /dev/tcp/127.0.0.1/9000' || exit 1
       timeout: 5s
-    image: minio/minio:RELEASE.2024-05-10T01-41-38Z
+    image: minio/minio:RELEASE.2025-09-07T16-13-09Z
     labels:
       - logging=ap_promtail
       - traefik.enable=true
@@ -286,7 +301,7 @@ services:
       - --path.sysfs=/host/sys
       - --collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)
     container_name: ap_nodeexporter
-    image: prom/node-exporter:v1.8.2
+    image: prom/node-exporter:v1.11.1
     logging:
       driver: json-file
       options:
@@ -358,7 +373,7 @@ services:
       - --web.console.libraries=/etc/prometheus/console_libraries
       - --web.console.templates=/etc/prometheus/consoles
     container_name: ap_prometheus
-    image: prom/prometheus:v2.53.1
+    image: prom/prometheus:v3.11.2
     logging:
       driver: json-file
       options:
@@ -382,7 +397,7 @@ services:
   promtail:
     command: -config.file=/etc/promtail/promtail-config.yaml
     container_name: ap_promtail
-    image: grafana/promtail:2.9.9
+    image: grafana/promtail:3.6.10
     networks:
       ap_network: null
     restart: unless-stopped
@@ -403,28 +418,6 @@ services:
         source: /var/log
         target: /var/log
         type: bind
-  rabbitmq:
-    container_name: ap_rabbitmq
-    environment:
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD}
-      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER}
-      RABBITMQ_ERLANG_COOKIE: ${RABBITMQ_ERLANG_COOKIE}
-    healthcheck:
-      interval: 30s
-      retries: 10
-      test: rabbitmq-diagnostics check_port_connectivity
-      timeout: 30s
-    image: rabbitmq:3.13.4-management
-    labels:
-      - logging=ap_promtail
-    logging:
-      driver: json-file
-      options:
-        max-file: "5"
-        max-size: 20m
-    networks:
-      ap_network: null
-    restart: unless-stopped
   traefik:
     command:
       - --api=true
@@ -440,7 +433,7 @@ services:
       - --certificatesresolvers.leresolver.acme.email=${LETS_ENCRYPT_EMAIL}
       - --certificatesresolvers.leresolver.acme.storage=/letsencrypt/acme.json
     container_name: ap_traefik
-    image: traefik:v3.0.0
+    image: traefik:v3.6.13
     labels:
       - logging=ap_promtail
       - traefik.enable=true

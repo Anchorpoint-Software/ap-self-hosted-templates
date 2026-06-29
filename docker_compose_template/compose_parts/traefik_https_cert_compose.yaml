@@ -14,7 +14,7 @@ services:
       - "--entrypoints.grpc.address=:9090"
       - "--entrypoints.minio.address=:9000"
       - "--entrypoints.minio-console.address=:9001"
-    image: traefik:v3.6.1
+    image: traefik:v3.6.13
     labels:
       - "logging=ap_promtail"
       - "traefik.enable=true"
@@ -44,7 +44,8 @@ services:
 
   keycloak:
     environment:
-      KC_HOSTNAME: ${DOMAIN_NAME}
+      KC_HOSTNAME: ${HTTP_SCHEME}://${DOMAIN_NAME}:${HTTP_PORT}/auth
+      KC_HOSTNAME_ADMIN: ${HTTP_SCHEME}://${DOMAIN_NAME}:${HTTP_PORT}/auth
       KC_HOSTNAME_BACKCHANNEL_DYNAMIC: true
       KC_HTTP_RELATIVE_PATH: /auth
       KC_HOSTNAME_DEBUG: true
@@ -61,7 +62,16 @@ services:
   ap_backend:
     labels:
       - "traefik.enable=true"
-      # grpc
+      # grpc on main port (new clients)
+      - "traefik.http.services.ap-grpc-web-srvc.loadbalancer.server.port=9090"
+      - "traefik.http.services.ap-grpc-web-srvc.loadbalancer.server.scheme=h2c"
+      - "traefik.http.routers.ap-grpc-web-rt.service=ap-grpc-web-srvc"
+      - "traefik.http.routers.ap-grpc-web-rt.rule=Host(`${DOMAIN_NAME}`) && HeaderRegexp(`Content-Type`, `^application/grpc.*`)"
+      - "traefik.http.routers.ap-grpc-web-rt.entrypoints=websecure"
+      - "traefik.http.routers.ap-grpc-web-rt.priority=100"
+      - "traefik.http.routers.ap-grpc-web-rt.tls=true"
+
+      # grpc on dedicated port (backwards compatibility for old clients)
       - "traefik.http.services.ap-grpc-srvc.loadbalancer.server.port=9090"
       - "traefik.http.services.ap-grpc-srvc.loadbalancer.server.scheme=h2c"
       - "traefik.http.routers.ap-grpc-rt.service=ap-grpc-srvc"

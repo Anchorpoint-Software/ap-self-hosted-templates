@@ -2,7 +2,7 @@ version: "3.8"
 
 services:
   grafana:
-    image: grafana/grafana:12.4.0-20151846001
+    image: grafana/grafana:13.0.1
     container_name: ap_grafana
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_USER}
@@ -27,7 +27,7 @@ services:
       - "--web.console.libraries=/etc/prometheus/console_libraries"
       - "--web.console.templates=/etc/prometheus/consoles"
     container_name: ap_prometheus
-    image: prom/prometheus:v3.8.0
+    image: prom/prometheus:v3.11.2
     logging:
       driver: json-file
       options:
@@ -45,7 +45,7 @@ services:
     command:
       - "-config.file=/etc/loki/local-config.yaml"
     container_name: ap_loki
-    image: grafana/loki:3.5.9
+    image: grafana/loki:3.7.1
     logging:
       driver: json-file
       options:
@@ -62,7 +62,7 @@ services:
   promtail:
     command: -config.file=/etc/promtail/promtail-config.yaml
     container_name: ap_promtail
-    image: grafana/promtail:3.5.9
+    image: grafana/promtail:3.6.10
     networks:
       - ap_network
     restart: unless-stopped
@@ -75,7 +75,7 @@ services:
     container_name: ap_cadvisor
     devices:
       - /dev/kmsg:/dev/kmsg
-    image: ghcr.io/google/cadvisor:0.54.0
+    image: ghcr.io/google/cadvisor:0.56.2
     networks:
       - ap_network
     privileged: true
@@ -94,7 +94,7 @@ services:
       - "--path.sysfs=/host/sys"
       - "--collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)"
     container_name: ap_nodeexporter
-    image: prom/node-exporter:v1.10.2
+    image: prom/node-exporter:v1.11.1
     logging:
       driver: json-file
       options:
