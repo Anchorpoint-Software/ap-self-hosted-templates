@@ -24,7 +24,7 @@ DEFAULT_WORKSPACE_NAME="AP Workspace"
 DASHBOARD_SESSION_SECRET=sessionsecret
 CRASH_REPORTING=false
 
-# Self-Hosted License Remote Validation (optional and not for trial license keys and needs docker compose override to work)
+# Self-Hosted License Remote Validation (optional and not for trial license keys)
 # Set to true to enable automatic license validation with https://cloud.anchorpoint.app (the instance must have internet access and be able to reach the cloud service)
 LICENSE_REMOTE_CHECK_ENABLED=false
 
@@ -41,11 +41,6 @@ POSTGRES_ADDRESS=postgres
 POSTGRES_PORT=5432
 POSTGRES_DB=ap
 POSTGRES_DATA_PATH=./data/postgres
-
-#Rabbitmq
-RABBITMQ_USER=aprabbitmq
-RABBITMQ_PASSWORD=aprabbitmqpw
-RABBITMQ_ERLANG_COOKIE=aprabbitmqcookie
 
 #MinIO
 MINIO_ACCESS_KEY=apminio
@@ -68,7 +63,7 @@ S3_USE_SSL=true
 S3_BUCKET=ap
 S3_REGION=
 S3_CREATE_BUCKET=false
-S3_CREATE_BUCKET_WITH_POLICY=false
+S3_CREATE_BUCKET_WITH_POLICY=true
 S3_BUCKET_AS_PATH_STYLE=false
 
 #Grafana

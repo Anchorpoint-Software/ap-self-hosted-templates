@@ -16,7 +16,7 @@ services:
       KC_DB_PASSWORD: ${POSTGRES_PASSWORD}
       KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_PASSWORD}
       KC_BOOTSTRAP_ADMIN_USERNAME: ${KEYCLOAK_USER}
-    image: quay.io/keycloak/keycloak:26.5.7-0
+    image: quay.io/keycloak/keycloak:26.8.2-3
     labels:
       - "logging=ap_promtail"
     logging:

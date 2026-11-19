@@ -14,7 +14,7 @@ services:
       - "--entrypoints.grpc.address=:9090"
       - "--entrypoints.minio.address=:9000"
       - "--entrypoints.minio-console.address=:9001"
-    image: traefik:v3.6.13
+    image: traefik:v3.7.19
     labels:
       - "logging=ap_promtail"
       - "traefik.enable=true"
